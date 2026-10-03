@@ -41,7 +41,12 @@ input[type=range]{width:100%;accent-color:var(--pr)}
 .res .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 pre{white-space:pre-wrap;max-height:200px;overflow:auto;background:var(--bg);padding:12px;border-radius:10px;font-family:inherit;font-size:13px}
 .bar{height:8px;background:var(--bd);border-radius:6px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--pr),var(--pr2));transition:.2s}
-footer{text-align:center;color:var(--mut);font-size:13px;padding:0 16px 30px}
+.ed{flex:1 1 100%}.tb{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.tb select{width:auto}.tb input[type=color]{width:42px;height:38px;padding:2px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)}
+.tb .in{flex-direction:row;align-items:center;min-width:0;flex:0 0 auto}.tb .in input{width:90px}.ib.w{width:auto;padding:0 12px}
+.stage{position:relative;overflow:auto;max-height:70vh;border:1px solid var(--bd);border-radius:10px;background:#888;display:flex;justify-content:center}
+.stage>div,.stage{line-height:0}.stage canvas{max-width:100%}.stage canvas+canvas{position:absolute;top:0;touch-action:none;cursor:crosshair}
+.note{color:var(--mut);font-size:13px}footer{text-align:center;color:var(--mut);font-size:13px;padding:0 16px 30px}
 </style>
 </head>
 <body>
@@ -53,6 +58,7 @@ footer{text-align:center;color:var(--mut);font-size:13px;padding:0 16px 30px}
 <footer>🔒 تتم المعالجة بالكامل على جهازك، ملفاتك تبقى خاصة بك.</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
@@ -88,6 +94,83 @@ const imgToCanvas=f=>new Promise((ok,no)=>{const u=URL.createObjectURL(f),i=new 
   i.onload=()=>{const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;
     const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(i,0,0);URL.revokeObjectURL(u);ok(c)};
   i.onerror=()=>no(Error('تعذّر قراءة الصورة '+f.name));i.src=u});
+
+
+
+function md5(m){const K=[],S=[7,12,17,22,5,9,14,20,4,11,16,23,6,10,15,21];
+ for(let i=0;i<64;i++)K[i]=Math.floor(Math.abs(Math.sin(i+1))*4294967296)>>>0;
+ const n=m.length,l=((n+8>>6)+1)<<6,b=new Uint8Array(l);b.set(m);b[n]=0x80;
+ const dv=new DataView(b.buffer);dv.setUint32(l-8,(n<<3)>>>0,true);dv.setUint32(l-4,Math.floor(n/536870912),true);
+ let a0=0x67452301,b0=0xefcdab89,c0=0x98badcfe,d0=0x10325476;
+ for(let o=0;o<l;o+=64){const M=[];for(let i=0;i<16;i++)M[i]=dv.getUint32(o+i*4,true);
+  let A=a0,B=b0,C=c0,D=d0;
+  for(let i=0;i<64;i++){let F,g;
+   if(i<16){F=(B&C)|(~B&D);g=i}else if(i<32){F=(D&B)|(~D&C);g=(5*i+1)%16}else if(i<48){F=B^C^D;g=(3*i+5)%16}else{F=C^(B|~D);g=(7*i)%16}
+   const s=S[(i>>4)*4+i%4];F=(F+A+K[i]+M[g])>>>0;A=D;D=C;C=B;B=(B+((F<<s)|(F>>>(32-s))))>>>0}
+  a0=(a0+A)>>>0;b0=(b0+B)>>>0;c0=(c0+C)>>>0;d0=(d0+D)>>>0}
+ const r=new Uint8Array(16),rv=new DataView(r.buffer);[a0,b0,c0,d0].forEach((v,i)=>rv.setUint32(i*4,v,true));return r}
+function rc4(key,data){const s=new Uint8Array(256);for(let i=0;i<256;i++)s[i]=i;let j=0;
+ for(let i=0;i<256;i++){j=(j+s[i]+key[i%key.length])&255;[s[i],s[j]]=[s[j],s[i]]}
+ const o=new Uint8Array(data.length);let a=0,b=0;
+ for(let k=0;k<data.length;k++){a=(a+1)&255;b=(b+s[a])&255;[s[a],s[b]]=[s[b],s[a]];o[k]=data[k]^s[(s[a]+s[b])&255]}return o}
+const cat=(...a)=>{const r=new Uint8Array(a.reduce((t,x)=>t+x.length,0));let o=0;a.forEach(x=>{r.set(x,o);o+=x.length});return r};
+const hex=u=>[...u].map(x=>x.toString(16).padStart(2,'0')).join('');
+function pdfEncrypt(s,userPw,ownerPw,lock){
+  const L=window.PDFLib,{PDFString,PDFHexString,PDFDict,PDFArray,PDFRawStream,PDFName}=L,ctx=s.context;
+  const PAD=Uint8Array.from([0x28,0xBF,0x4E,0x5E,0x4E,0x75,0x8A,0x41,0x64,0x00,0x4E,0x56,0xFF,0xFA,0x01,0x08,0x2E,0x2E,0x00,0xB6,0xD0,0x68,0x3E,0x80,0x2F,0x0C,0xA9,0xFE,0x64,0x53,0x69,0x7A]);
+  const te=new TextEncoder(),pad=p=>cat(te.encode(p),PAD).slice(0,32);
+  const xk=(k,i)=>k.map(b=>b^i);
+  let P=0xFFFFF0C0|0x4|0x800|0x100|0x200;if(!lock)P|=0x8|0x10|0x20|0x400;P|=0;
+  // owner entry
+  let h=md5(pad(ownerPw));for(let i=0;i<50;i++)h=md5(h);
+  const ok=h.slice(0,16);let O=rc4(ok,pad(userPw));for(let i=1;i<=19;i++)O=rc4(xk(ok,i),O);
+  const id=crypto.getRandomValues(new Uint8Array(16));
+  // file key
+  const pb=new Uint8Array(4);new DataView(pb.buffer).setInt32(0,P,true);
+  let k=md5(cat(pad(userPw),O,pb,id));for(let i=0;i<50;i++)k=md5(k.slice(0,16));
+  const key=k.slice(0,16);
+  // user entry
+  let U=rc4(key,md5(cat(PAD,id)));for(let i=1;i<=19;i++)U=rc4(xk(key,i),U);
+  U=cat(U,new Uint8Array(16));
+  const objKey=(n,g)=>md5(cat(key,Uint8Array.from([n&255,(n>>8)&255,(n>>16)&255,g&255,(g>>8)&255]))).slice(0,16);
+  const enc=(o,ky)=>{
+    if(o instanceof PDFString||o instanceof PDFHexString)return PDFHexString.of(hex(rc4(ky,o.asBytes())));
+    if(o instanceof PDFDict){for(const [n,v] of o.entries()){const r=enc(v,ky);if(r!==v)o.set(n,r)}return o}
+    if(o instanceof PDFArray){for(let i=0;i<o.size();i++){const v=o.get(i),r=enc(v,ky);if(r!==v)o.set(i,r)}return o}
+    return o};
+  for(const [ref,obj] of ctx.enumerateIndirectObjects()){
+    const ky=objKey(ref.objectNumber,ref.generationNumber);
+    if(obj&&obj.dict&&obj.getContents){
+      const t=obj.dict.get(PDFName.of('Type'));
+      if(t===PDFName.of('ObjStm')||t===PDFName.of('XRef')){ctx.delete(ref);continue}
+      enc(obj.dict,ky);ctx.assign(ref,PDFRawStream.of(obj.dict,rc4(ky,obj.getContents())));
+    }else{const r=enc(obj,ky);if(r!==obj)ctx.assign(ref,r)}
+  }
+  ctx.trailerInfo.Encrypt=ctx.register(ctx.obj({Filter:'Standard',V:2,R:3,Length:128,P,O:PDFHexString.of(hex(O)),U:PDFHexString.of(hex(U))}));
+  ctx.trailerInfo.ID=ctx.obj([PDFHexString.of(hex(id)),PDFHexString.of(hex(id))]);
+}
+
+const AN={d:null,n:1,L:{},U:{}};
+async function anShow(){
+  const pg=await AN.d.getPage(AN.n),vp=pg.getViewport({scale:1.4}),pc=document.createElement('canvas');
+  pc.width=vp.width;pc.height=vp.height;await pg.render({canvasContext:pc.getContext('2d'),viewport:vp}).promise;
+  let L=AN.L[AN.n];
+  if(!L){L=AN.L[AN.n]=document.createElement('canvas');L.width=vp.width;L.height=vp.height;AN.U[AN.n]=[];anBind(L)}
+  const st=$('#stg');st.innerHTML='';st.append(pc,L);$('#a_n').textContent=AN.n+' / '+AN.d.numPages;
+}
+function anBind(L){
+  const x=L.getContext('2d');let dn=false,sp,snap;
+  const pos=e=>{const r=L.getBoundingClientRect();return{x:(e.clientX-r.left)*L.width/r.width,y:(e.clientY-r.top)*L.height/r.height}};
+  const m=()=>$('#a_m').value,sz=()=>+$('#a_s').value,col=()=>$('#a_c').value;
+  L.onpointerdown=e=>{const p=pos(e);snap=x.getImageData(0,0,L.width,L.height);
+    if(m()==='text'){const t=prompt('اكتب النص:');if(!t)return;AN.U[AN.n].push(snap);
+      x.fillStyle=col();x.font=`${10+sz()*4}px Cairo,Tahoma,Arial`;x.textBaseline='top';x.fillText(t,p.x,p.y);return}
+    AN.U[AN.n].push(snap);dn=true;sp=p;L.setPointerCapture(e.pointerId);x.beginPath();x.moveTo(p.x,p.y)};
+  L.onpointermove=e=>{if(!dn)return;const p=pos(e);
+    if(m()==='pen'){x.strokeStyle=col();x.lineWidth=sz()/1.5+1;x.lineCap=x.lineJoin='round';x.lineTo(p.x,p.y);x.stroke()}
+    else{x.putImageData(snap,0,0);x.fillStyle='rgba(255,230,0,.4)';x.fillRect(sp.x,sp.y,p.x-sp.x,p.y-sp.y)}};
+  L.onpointerup=()=>dn=false;
+}
 
 const TOOLS=[
 {id:'merge',ic:'🧩',name:'دمج PDF',desc:'ضم عدة ملفات في ملف واحد',accept:'.pdf',multi:true,min:2,opts:'',
@@ -159,6 +242,47 @@ const TOOLS=[
  opts:`<label>العنوان<input type="text" id="o_ti"></label><label>المؤلف<input type="text" id="o_au"></label>`,
  run:async(fs)=>{const s=await load(fs[0]);s.setTitle($('#o_ti').value);s.setAuthor($('#o_au').value);
   return[{name:base(fs[0])+'-meta.pdf',data:await U8(s)}]}}
+,{id:'compress',ic:'🗜️',name:'ضغط PDF',desc:'قلّل حجم الملف بتحويل الصفحات إلى صور مضغوطة',accept:'.pdf',
+ opts:`<label>الجودة<select id="o_q"><option value="0.5">منخفضة (أصغر حجم)</option><option value="0.7" selected>متوسطة</option><option value="0.85">عالية</option></select></label>
+ <label>الدقة<select id="o_k"><option value="1">عادية</option><option value="1.5" selected>جيدة</option><option value="2">عالية</option></select></label>
+ <p class="note" style="flex:1 1 100%;margin:0">⚠️ يُحوَّل كل صفحة إلى صورة، فيصبح النص غير قابل للتحديد أو النسخ. استخدم أداة OCR لاستعادته.</p>`,
+ run:async(fs,o,p)=>{const q=+$('#o_q').value,sc=+$('#o_k').value,pdf=await pdfjsLib.getDocument({data:await buf(fs[0])}).promise,d=await PDFDocument.create();
+  for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i),v1=pg.getViewport({scale:1}),v=pg.getViewport({scale:sc}),c=document.createElement('canvas');
+   c.width=v.width;c.height=v.height;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+   await pg.render({canvasContext:x,viewport:v}).promise;
+   const b=await new Promise(r=>c.toBlob(r,'image/jpeg',q)),im=await d.embedJpg(await b.arrayBuffer());
+   d.addPage([v1.width,v1.height]).drawImage(im,{x:0,y:0,width:v1.width,height:v1.height});p(i/pdf.numPages)}
+  const data=await U8(d);return[{name:base(fs[0])+'-compressed.pdf',data,note:sz(fs[0].size)+' ← '+sz(data.length)}]}}
+,{id:'encrypt',ic:'🔐',name:'تشفير PDF',desc:'احمِ الملف بكلمة مرور',accept:'.pdf',
+ opts:`<label>كلمة المرور<input type="text" id="o_pw" autocomplete="off"></label>
+ <label>الصلاحيات<select id="o_lk"><option value="1">منع النسخ والتعديل (الطباعة مسموحة)</option><option value="0">السماح بكل شيء بعد فتح الملف</option></select></label>`,
+ run:async(fs)=>{const pw=$('#o_pw').value;if(!pw)throw Error('أدخل كلمة المرور');
+  const s=await load(fs[0]),l=$('#o_lk').value==='1';
+  pdfEncrypt(s,pw,pw+'#'+Math.random().toString(36).slice(2),l);
+  const bytes=new Uint8Array(await s.save({useObjectStreams:false}));
+  return[{name:base(fs[0])+'-protected.pdf',data:bytes,note:'🔒 RC4-128'}]}}
+,{id:'annotate',ic:'✍️',name:'كتابة وتوقيع وتظليل',desc:'أضف نصًا أو توقيعًا بخط اليد أو تظليلًا فوق الصفحات',accept:'.pdf',
+ opts:`<div class="ed"><div class="tb"><select id="a_m"><option value="text">✏️ نص (اضغط على الصفحة)</option><option value="pen">🖊️ رسم / توقيع</option><option value="hl">🟨 تظليل (اسحب)</option></select>
+ <input type="color" id="a_c" value="#1d4ed8"><label class="in">الحجم<input type="range" id="a_s" min="1" max="10" value="4"></label>
+ <button class="ib w" id="a_u">↩ تراجع</button><button class="ib w" id="a_p">▶</button><span id="a_n">-</span><button class="ib w" id="a_x">◀</button></div><div class="stage" id="stg"></div></div>`,
+ onFiles:async fs=>{if(!fs.length)return;AN.d=await pdfjsLib.getDocument({data:await buf(fs[0])}).promise;AN.n=1;AN.L={};AN.U={};
+  $('#a_p').onclick=()=>{if(AN.n>1){AN.n--;anShow()}};$('#a_x').onclick=()=>{if(AN.n<AN.d.numPages){AN.n++;anShow()}};
+  $('#a_u').onclick=()=>{const u=AN.U[AN.n];if(u&&u.length)AN.L[AN.n].getContext('2d').putImageData(u.pop(),0,0)};anShow()},
+ run:async(fs)=>{const s=await load(fs[0]);let k=0;
+  for(const n in AN.L){const L=AN.L[n],pg=s.getPage(n-1),im=await s.embedPng(await(await canvasBlob(L)).arrayBuffer()),{width:w,height:h}=pg.getSize();
+   pg.drawImage(im,{x:0,y:0,width:w,height:h});k++}
+  if(!k)throw Error('افتح الصفحات وأضف تعديلًا واحدًا على الأقل');
+  return[{name:base(fs[0])+'-annotated.pdf',data:await U8(s)}]}}
+,{id:'ocr',ic:'🔍',name:'التعرف على النص (OCR)',desc:'استخرج النص من الملفات الممسوحة ضوئيًا',accept:'.pdf',
+ opts:`<label>اللغة<select id="o_l"><option value="ara+eng">عربي + إنجليزي</option><option value="ara">عربي</option><option value="eng">إنجليزي</option></select></label>
+ <p class="note" style="flex:1 1 100%;margin:0">قد تستغرق العملية دقائق، وتُحمَّل بيانات اللغة في المرة الأولى.</p>`,
+ run:async(fs,o,p)=>{if(typeof Tesseract==='undefined')throw Error('مكتبة OCR لم تُحمَّل. تأكد من اتصال الإنترنت.');
+  let i=0,n=1;const w=await Tesseract.createWorker($('#o_l').value,1,{logger:m=>{if(m.status==='recognizing text')p((i+m.progress)/n)}});
+  const bl=await renderPages(fs[0],2.5);n=bl.length;let t='';
+  for(i=0;i<n;i++){const r=await w.recognize(bl[i]);t+=`--- صفحة ${i+1} ---\n${r.data.text}\n\n`}
+  await w.terminate();window._preview=t.slice(0,1500);
+  return[{name:base(fs[0])+'-ocr.txt',data:'\ufeff'+t}]}}
+
 ];
 
 let cur=TOOLS[0],files=[];
@@ -182,7 +306,7 @@ function pick(id){
 }
 function add(a){
   const ok=cur.accept==='.pdf'?a.filter(f=>/pdf$/i.test(f.type)||/\.pdf$/i.test(f.name)):a.filter(f=>f.type.startsWith('image/'));
-  files=cur.multi?files.concat(ok):ok.slice(0,1);render();
+  files=cur.multi?files.concat(ok):ok.slice(0,1);render();cur.onFiles&&cur.onFiles(files);
 }
 function render(){
   $('#fl').innerHTML=files.map((f,i)=>`<li><span>📄</span><span class="n">${f.name}</span><small>${sz(f.size)}</small>
@@ -212,9 +336,9 @@ async function run(){
     const res=await cur.run(files,{},v=>bar.firstChild.style.width=Math.max(5,v*100)+'%');
     bar.firstChild.style.width='100%';
     out.innerHTML=(window._preview?`<pre>${window._preview.replace(/</g,'&lt;')}</pre>`:'')+
-      res.map((r,i)=>`<div class="res"><span>✅</span><span class="n">${r.name}</span><button class="btn sec" data-i="${i}">⬇ تحميل</button></div>`).join('');
+      res.map((r,i)=>`<div class="res"><span>✅</span><span class="n">${r.name} <small>${r.note||""}</small></span><button class="btn sec" data-i="${i}">⬇ تحميل</button></div>`).join('');
     out.querySelectorAll('.btn.sec').forEach(b=>b.onclick=()=>save(res[b.dataset.i].name,res[b.dataset.i].data));
-  }catch(e){out.innerHTML=`<div class="msg err">⚠️ ${e.message||'حدث خطأ أثناء المعالجة'}</div>`}
+  }catch(e){let m=e.message||'حدث خطأ أثناء المعالجة';if(/Worker/i.test(m))m='لا تعمل هذه الأداة داخل معاينة Claude لأنها تمنع العمال (Workers). افتح الصفحة من موقعك على GitHub Pages أو من ملف محفوظ على جهازك.';out.innerHTML=`<div class="msg err">⚠️ ${m}</div>`}
   go.disabled=files.length<(cur.min||1);setTimeout(()=>bar.hidden=true,600);
 }
 pick('merge');
